@@ -1,0 +1,87 @@
+version: '3'
+
+networks:
+    Webserver:
+    # Yerel ağ dışına sunum gerçekleştirecekseniz nginx'i proxy olarak da kullanabilirsiniz (konfigürasyon dosyasından değişiklik yapmanız gerekmektedir). Ancak nginx'in önüne bir proxy ekleyip, yerel ağ dışına sunum yapmak istiyorsanız, bu durumda nginx'in networks kısmına proxy'i bağladığınız ağın eklenmesi gerekmektedir. Ayrıca domain adını değiştirirseniz, ngnix'in konfigürasyon dosyasından da bu değişikliği yapmanız gerekmektedir.
+    # localhost:8080 webserver, localhost:8081 mysqladmin'dir.
+    # app/public klasöründe örnek bağlantı dosyaları yer almaktadır. "redis.php" dosyasını VS Code ile açtığınızda hata alıyor olarak görebilirsiniz. Bunun nedeni geliştirme ortamınızda predis'in yüklü olmamasından kaynaklanmaktadır. PHP'nin docker dosyasında bu eklenti yer almaktadır. 
+
+services:
+
+    # nginx
+    nginx:
+        image: nginx:1.21.6-alpine
+        container_name: nginx
+        ports:
+            - "8080:80"
+        volumes:
+            - ./app:/var/www/project
+            - ./nginx/default.conf:/etc/nginx/conf.d/default.conf #Tüm dosyalar servis edilmemekte olup, konfigürasyon dosyası içerisinde sondan 1 önceki location alanında servis edilen dosyaların bilgisi yer almaktadır.
+            - ./log/nginx:/var/log/nginx
+        depends_on:
+            - php74
+        networks:
+            - Webserver
+
+    # php
+    php74:
+        build:
+            context: .
+            dockerfile: ./php/Dockerfile
+        container_name: php74
+        ports:
+            - "9000:9000"
+        env_file:
+            - ./env/php.env
+        volumes:
+            - ./app:/var/www/project
+        networks:
+            - Webserver
+        depends_on:
+            - db
+            - redis
+
+    # mysql
+    db:
+        image: mysql:8
+        container_name: mysql8
+        ports:
+            - "3306:3306"
+        volumes:
+            - ./mysql:/var/lib/mysql #SQL'in default yeri App klasörü içerisine alınmış, bu sayede farklı disklere bölümlendirilmesi ve veri kaybı yaşanması olasılıkları bertaraf edilmiştir.
+            - ./init:/docker-entrypoint-initdb.d #Veri tabanıları kurulumu ve aktarımları init klasörü içerisinde yer alan sql dosyasından yapılmalıdır.
+        command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+        restart: always
+        env_file:
+            - ./env/mysql.env #Veri tabanı şifresi ve default olarak gelecek olan veri tabanı bu alandan oluşturulmaktadır. Mevcut durumda sunucu adı "db", kullanıcı "root", şifre "secret" ve veri tabanı adı "APP"tir.
+        networks:
+            - Webserver
+
+    # phpmyadmin
+    phpmyadmin:
+        image: phpmyadmin/phpmyadmin
+        container_name: phpmyadmin
+        env_file:
+            - ./env/phpmyadmin.env
+        ports:
+            - "8081:80"
+        restart: always
+        volumes:
+            - ./app:/var/www/project
+        networks:
+            - Webserver
+        depends_on:
+            - db
+
+    # redis (Halihazırda php session değişkenleri bu alanda saklanmaktadır. Ancak MySQL cache olarak da kullanılabilmektedir, bu durumda session değişkenleriniz ile MySQL değişkenlerinizin farklı olmasına azami önem göstermeniz gerekmektedir. Örn: Blob olarak veri tabanında sakladığınız json dosyasını redis içerisine yazabilirsiniz.)
+    redis:
+        image: redis:6.2.6-alpine
+        container_name: redis
+        command: redis-server --requirepass supersecretpass --appendonly yes #Bu satırda php sessionlarını yöneten redisin şifresi yer almaktadır. Değişiklik yapılması durumunda php klasörü içerisindeki php.ini dosyası ile env klasörü içerisinde yer alan php.env dosyası içerisindeki şifre kısımlarının da değiştirilmesi gerekmektedir.
+        ports:
+            - "6379:6379"
+        restart: always
+        networks:
+            - Webserver
+        depends_on:
+            - db
