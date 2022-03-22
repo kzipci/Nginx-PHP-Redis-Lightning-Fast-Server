@@ -1,4 +1,4 @@
-# Ngnix-PHP-Redis-Lightning-Fast-Server
+# Nginx-PHP-Redis-Lightning-Fast-Server
 
 Yüksek hıza ihtiyaç duyulan uygulamalar için sunucu mimarisidir.
 
